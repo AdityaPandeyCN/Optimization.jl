@@ -230,41 +230,28 @@ end
 
 @inline function _lbfgs_direction(g, s_hist, y_hist, pseudo_iteration, ::Val{M}) where {M}
     T = eltype(g)
+    n = min(pseudo_iteration - 1, M)
     α = ntuple(_ -> zero(T), Val(M))
     q = g
-    lower = pseudo_iteration - M
-    upper = pseudo_iteration - 1
-
-    for index in upper:-1:lower
-        index < 1 && continue
-        j = mod1(index, M)
-        s, y = s_hist[j], y_hist[j]
-        ρ = inv(dot(y, s))
-        α = Base.setindex(α, ρ * dot(s, q), j)
-        q -= α[j] * y
+    for k in M:-1:1
+        if k > M - n
+            s, y = s_hist[k], y_hist[k]
+            α = Base.setindex(α, inv(dot(y, s)) * dot(s, q), k)
+            q -= α[k] * y
+        end
     end
-
-    r = q
-    if pseudo_iteration > 1
-        j = mod1(upper, M)
-        s, y = s_hist[j], y_hist[j]
-        r = (dot(s, y) / sum(abs2, y)) * q
-    end
-
-    for index in lower:upper
-        index < 1 && continue
-        j = mod1(index, M)
-        s, y = s_hist[j], y_hist[j]
-        ρ = inv(dot(y, s))
-        r += s * (α[j] - ρ * dot(y, r))
+    r = n > 0 ? (dot(s_hist[M], y_hist[M]) / sum(abs2, y_hist[M])) * q : q
+    for k in 1:M
+        if k > M - n
+            s, y = s_hist[k], y_hist[k]
+            r += s * (α[k] - inv(dot(y, s)) * dot(y, r))
+        end
     end
     return -r
 end
 
-@inline function _store_history(s_hist, y_hist, pseudo_iteration, s, y, ::Val{M}) where {M}
-    j = mod1(pseudo_iteration, M)
-    return Base.setindex(s_hist, s, j), Base.setindex(y_hist, y, j)
-end
+@inline _store_history(s_hist, y_hist, pseudo_iteration, s, y, ::Val{M}) where {M} =
+    (Base.tail(s_hist)..., s), (Base.tail(y_hist)..., y)
 
 @inline function _lbfgs(
         grad_f, f, p, x0, lb, ub,
